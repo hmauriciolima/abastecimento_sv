@@ -3,10 +3,10 @@ import pandas as pd
 import requests
 from datetime import date
 
-# CONFIGURAÇÃO DA PÁGINA
+# 1. CONFIGURAÇÃO DA PÁGINA (Sempre no topo)
 st.set_page_config(page_title="Abastecimento - Santa Verginia", page_icon="⛽", layout="wide")
 
-# ESTILIZAÇÃO (CORRIGIDO: unsafe_allow_html)
+# ESTILIZAÇÃO PARA O CELULAR
 st.markdown("""
     <style>
     .stButton>button {
@@ -23,11 +23,11 @@ st.markdown("""
 st.markdown("# ⛽ Registro de Abastecimento - Santa Verginia")
 st.divider()
 
-# CONFIGURAÇÕES DE LINKS
+# 2. LINKS ATUALIZADOS (Google Sheets e seu Novo Web App)
 SHEET_ID = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
-URL_WEB_APP = "https://script.google.com/macros/s/AKfycbxa4FyIpwL5W1Vmx7V5elySshwx0f4d86WIKg4N4AqjH5jauxOXo_2nz9K4s3T2-pq5/exec"
+URL_WEB_APP = "https://script.google.com/macros/s/AKfycbxFsbyZRJbbI1iUc5wqj12ad1YfEfbEDBIO25Oqwrn09Yg4qxC2a684bIl_5t2YUf8/exec"
 
-# 1. FUNÇÃO PARA LER A FROTA
+# 3. FUNÇÃO PARA LER A LISTA DE VEÍCULOS
 @st.cache_data(ttl=60)
 def carregar_frota():
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=DIM_FROTA"
@@ -39,30 +39,28 @@ def carregar_frota():
 
 lista_veiculos = carregar_frota()
 
-# 2. INTERFACE DO FORMULÁRIO
+# 4. FORMULÁRIO DE ENTRADA
 with st.form("form_abastecimento", clear_on_submit=True):
     col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("📍 Origem e Destino")
-        data_res = st.date_input("Data do Abastecimento", date.today())
-        origem_res = st.radio("Onde foi abastecido?", ["POSTO SEDE", "COMBOIO"], horizontal=True)
-        destino_res = st.selectbox("Local de Atuação (Destino)", 
-                             ["POSTO DE ABASTECIMENTO", "RETIRO SÃO JOSÉ", "RETIRO SANTA MARIA", "RETIRO SÃO JOÃO", "MANUTENÇÃO"])
-        atividade_res = st.selectbox("Atividade Vinculada", 
-                               ["MANEJO", "LIMPEZA DE PASTO", "AGRICULTURA", "LOGÍSTICA", "ADMINISTRATIVO"])
-
+        data_res = st.date_input("Data", date.today())
+        origem_res = st.radio("Origem", ["POSTO SEDE", "COMBOIO"], horizontal=True)
+        destino_res = st.selectbox("Destino", ["POSTO DE ABASTECIMENTO", "RETIRO SÃO JOSÉ", "RETIRO SANTA MARIA", "RETIRO SÃO JOÃO", "MANUTENÇÃO"])
+        atividade_res = st.selectbox("Atividade", ["MANEJO", "LIMPEZA DE PASTO", "AGRICULTURA", "LOGÍSTICA", "ADMINISTRATIVO"])
+        
     with col2:
         st.subheader("🚜 Equipamento e Volume")
-        veiculo_res = st.selectbox("Selecione o Veículo/Trator", lista_veiculos)
-        combustivel_res = st.selectbox("Tipo de Combustível", ["DIESEL", "DIESEL S10", "GASOLINA", "ETANOL"])
-        qtd_res = st.number_input("Quantidade (Litros)", min_value=0.0, step=0.1, format="%.1f")
-        horimetro_res = st.number_input("Horímetro / KM atual", min_value=0.0, step=0.1)
+        veiculo_res = st.selectbox("Veículo/Equipamento", lista_veiculos)
+        combustivel_res = st.selectbox("Combustível", ["DIESEL", "DIESEL S10", "GASOLINA", "ETANOL"])
+        qtd_res = st.number_input("Litros", min_value=0.0, step=0.1, format="%.1f")
+        horimetro_res = st.number_input("Horímetro/KM", min_value=0.0, step=0.1)
 
     st.markdown("---")
     btn_salvar = st.form_submit_button("💾 REGISTRAR ABASTECIMENTO")
 
-# 3. LÓGICA DE ENVIO
+# 5. LÓGICA DE ENVIO (POST)
 if btn_salvar:
     if qtd_res > 0:
         dados = {
@@ -76,15 +74,19 @@ if btn_salvar:
             "ATIVIDADE": atividade_res
         }
         
-        with st.spinner('Enviando dados...'):
+        with st.spinner('Gravando na planilha...'):
             try:
+                # Envia os dados para o Google Apps Script
                 response = requests.post(URL_WEB_APP, json=dados)
+                
                 if response.status_code == 200:
-                    st.success(f"✅ REGISTRO CONCLUÍDO! Salvo na planilha.")
+                    st.success(f"✅ SUCESSO! Registro do {veiculo_res} salvo na planilha.")
                     st.balloons()
                 else:
-                    st.error(f"Erro no servidor do Google: {response.status_code}")
+                    st.error(f"Erro no Google (Status {response.status_code})")
             except Exception as e:
                 st.error(f"Erro de conexão: {e}")
     else:
         st.warning("⚠️ Informe a quantidade de litros.")
+
+st.markdown("<p style='text-align: center; color: gray;'>Santa Verginia - Gestão de Frota</p>", unsafe_allow_html=True)
