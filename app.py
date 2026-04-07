@@ -6,38 +6,58 @@ from datetime import date
 # 1. CONFIGURAÇÃO DA PÁGINA
 st.set_page_config(page_title="Abastecimento - SV", page_icon="⛽", layout="wide")
 
-# 2. LOGOMARCA E CABEÇALHO
-col_logo, col_titulo = st.columns([1, 4])
+# 2. CABEÇALHO COM LOGO E TÍTULO UNIFICADO NA MESMA LINHA
+col_logo, col_titulo = st.columns([1, 6]) # Ajustei a proporção para dar mais espaço ao título
+
 with col_logo:
     try:
+        # Tenta carregar a imagem do seu repositório
         st.image("logo_sv.png.png", width=120)
     except:
+        # Fallback caso a imagem não carregue
         st.write("# 🚜")
 
 with col_titulo:
-    # Cabeçalho atualizado conforme sua solicitação
-    st.markdown("# REGISTRO DE ABASTECIMENTO DE FROTA - SV")
-    st.markdown("#### Supply Chain & Inventory Control | Developed by Controladoria")
+    # --- HTML CUSTOMIZADO PARA JUNTAR TÍTULO GRANDE E TEXTO PEQUENO NA MESMA LINHA ---
+    st.markdown(
+        """
+        <div style="display: flex; align-items: baseline; gap: 15px; padding-top: 10px;">
+            <h1 style="margin: 0; font-size: 32px; font-weight: 700;">
+                REGISTRO DE ABASTECIMENTO DE FROTA - SV
+            </h1>
+            <span style="font-size: 16px; color: #6c757d; font-weight: 400; padding-bottom: 5px;">
+                Supply Chain & Inventory Control | Developed by Controladoria
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    # ---------------------------------------------------------------------------------
 
 st.divider()
 
 # 3. CONFIGURAÇÕES DE LINKS
 SHEET_ID = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
+# NÃO ESQUEÇA DE VERIFICAR SE O SEU URL_WEB_APP ESTÁ CORRETO
 URL_WEB_APP = "https://script.google.com/macros/s/AKfycbxFsbyZRJbbI1iUc5wqj12ad1YfEfbEDBIO25Oqwrn09Yg4qxC2a684bIl_5t2YUf8/exec"
 
 # 4. FUNÇÕES PARA CARREGAR LISTAS DINÂMICAS DA PLANILHA
 @st.cache_data(ttl=60)
 def carregar_dados(aba, coluna):
     url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet={aba}"
-    df = pd.read_csv(url)
-    return df[coluna].dropna().unique().tolist()
+    try:
+        df = pd.read_csv(url)
+        return df[coluna].dropna().unique().tolist()
+    except Exception as e:
+        return [f"Erro na aba {aba}: {e}"]
 
 try:
+    # Carrega as listas das suas abas DIM_FROTA, DIM_LOCAIS e DIM_ATIVIDADES
     lista_modelos = carregar_dados("DIM_FROTA", "VEICULOS_EQUIPAMENTOS")
     lista_locais = carregar_dados("DIM_LOCAIS", "LOCAL_DESTINO")
     lista_atividades = carregar_dados("DIM_ATIVIDADES", "ATIVIDADE")
 except:
-    st.error("Erro ao carregar listas. Verifique as abas DIM_FROTA, DIM_LOCAIS e DIM_ATIVIDADES.")
+    st.error("Erro geral no carregamento das listas.")
     lista_modelos, lista_locais, lista_atividades = ["ERRO"], ["ERRO"], ["ERRO"]
 
 # 5. ESTILIZAÇÃO DO BOTÃO E RODAPÉ
@@ -89,14 +109,15 @@ if btn_salvar:
             "ATIVIDADE": atividade_res
         }
         
-        try:
-            envio = requests.post(URL_WEB_APP, json=pacote_dados)
-            if envio.status_code == 200:
-                st.success(f"✅ MOVIMENTAÇÃO REGISTRADA! Ativo: {id_frota_res.upper()}")
-                st.balloons()
-            else:
-                st.error("❌ Erro na integração com a planilha.")
-        except:
-            st.error("❌ Falha de conexão com o servidor de dados.")
+        with st.spinner('Enviando para a Controladoria...'):
+            try:
+                envio = requests.post(URL_WEB_APP, json=pacote_dados)
+                if envio.status_code == 200:
+                    st.success(f"✅ MOVIMENTAÇÃO REGISTRADA! Ativo: {id_frota_res.upper()}")
+                    st.balloons()
+                else:
+                    st.error("❌ Erro na integração com a planilha.")
+            except:
+                st.error("❌ Falha de conexão com o servidor de dados.")
 
 st.markdown('<div class="footer">SUPPLY CHAIN SYSTEM | CONTROLADORIA SANTA VERGINIA - 2026</div>', unsafe_allow_html=True)
