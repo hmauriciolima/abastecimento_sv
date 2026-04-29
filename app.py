@@ -46,7 +46,9 @@ def carregar_listas():
     erros = []
     f_lista, l_lista, a_lista = [], [], []
     try:
-        f_lista = ler_aba(GID_FROTA)["FROTA"].dropna().unique().tolist()
+        df_f = ler_aba(GID_FROTA)
+        st.write("🔍 Colunas da aba FROTA:", df_f.columns.tolist())  # DEBUG
+        f_lista = df_f["FROTA"].dropna().unique().tolist()
     except Exception as e:
         erros.append(f"❌ FROTA: {e}")
     try:
