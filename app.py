@@ -14,8 +14,24 @@ st.markdown("""
 
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- DIAGNÓSTICO TEMPORÁRIO ---
-st.write("🔍 SECRETS CARREGADOS:", st.secrets["connections"]["gsheets"])
+# --- DIAGNÓSTICO TOTAL ---
+st.subheader("🔍 DIAGNÓSTICO")
+st.write("**Secrets:**", st.secrets["connections"]["gsheets"])
+
+try:
+    df_teste = conn.read()
+    st.success(f"✅ Conexão OK! Colunas da 1ª aba: {df_teste.columns.tolist()}")
+except Exception as e:
+    st.error(f"❌ Falha total na conexão: {e}")
+
+for aba in ["ABASTECIMENTO", "FROTA", "DIM_LOCAIS", "DIM_ATIVIDADES"]:
+    try:
+        df = conn.read(worksheet=aba)
+        st.success(f"✅ Aba '{aba}' OK — {len(df)} linhas, colunas: {df.columns.tolist()}")
+    except Exception as e:
+        st.error(f"❌ Aba '{aba}': {e}")
+
+st.divider()
 
 # --- LOGIN ---
 if "auth" not in st.session_state:
