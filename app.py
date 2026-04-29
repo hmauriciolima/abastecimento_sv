@@ -3,7 +3,6 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Abastecimento SV", layout="wide", page_icon="⛽")
 
 st.markdown("""
@@ -14,6 +13,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 conn = st.connection("gsheets", type=GSheetsConnection)
+
+# --- DIAGNÓSTICO TEMPORÁRIO ---
+st.write("🔍 SECRETS CARREGADOS:", st.secrets["connections"]["gsheets"])
 
 # --- LOGIN ---
 if "auth" not in st.session_state:
@@ -30,36 +32,30 @@ if not st.session_state.auth:
             st.error("Senha incorreta!")
     st.stop()
 
-# --- CARREGAMENTO DE DADOS ---
-# ⚠️ AJUSTE OS NOMES DAS ABAS ABAIXO CONFORME SUA PLANILHA
-ABA_FROTA       = "FROTA"          # Aba com coluna FROTA
-ABA_LOCAIS      = "DIM_LOCAIS"     # Aba com coluna LOCAL_DESTINO
-ABA_ATIVIDADES  = "DIM_ATIVIDADES" # Aba com coluna ATIVIDADE
-ABA_REGISTRO    = "ABASTECIMENTO"  # Aba principal de lançamentos
+ABA_FROTA      = "FROTA"
+ABA_LOCAIS     = "DIM_LOCAIS"
+ABA_ATIVIDADES = "DIM_ATIVIDADES"
+ABA_REGISTRO   = "ABASTECIMENTO"
 
 @st.cache_data(ttl=60)
 def carregar_listas():
     erros = []
     f_lista, l_lista, a_lista = [], [], []
-
     try:
         df_frota = conn.read(worksheet=ABA_FROTA)
         f_lista = df_frota["FROTA"].dropna().unique().tolist()
     except Exception as e:
         erros.append(f"❌ Aba '{ABA_FROTA}': {e}")
-
     try:
         df_locais = conn.read(worksheet=ABA_LOCAIS)
         l_lista = df_locais["LOCAL_DESTINO"].dropna().unique().tolist()
     except Exception as e:
         erros.append(f"❌ Aba '{ABA_LOCAIS}': {e}")
-
     try:
         df_ativ = conn.read(worksheet=ABA_ATIVIDADES)
         a_lista = df_ativ["ATIVIDADE"].dropna().unique().tolist()
     except Exception as e:
         erros.append(f"❌ Aba '{ABA_ATIVIDADES}': {e}")
-
     return f_lista, l_lista, a_lista, erros
 
 frotas, locais, ativs, erros_carga = carregar_listas()
@@ -67,9 +63,7 @@ frotas, locais, ativs, erros_carga = carregar_listas()
 if erros_carga:
     for e in erros_carga:
         st.error(e)
-    st.info("💡 Verifique se os nomes das abas no código coincidem exatamente com os da sua planilha (maiúsculas/minúsculas incluídas).")
 
-# --- INTERFACE ---
 st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
 
 with st.container():
@@ -80,19 +74,16 @@ with st.container():
         origem = st.radio("Origem", ["POSTO SEDE", "COMBOIO"], horizontal=True)
         destino = st.selectbox("Local / Destino", options=locais if locais else ["— sem dados —"])
         atividade = st.selectbox("Atividade / Operação", options=ativs if ativs else ["— sem dados —"])
-
     with c2:
         st.subheader("🚜 Ativo / Equipamento")
         modelo = st.selectbox("Modelo do Equipamento", options=frotas if frotas else ["— sem dados —"])
         id_frota = st.text_input("ID Frota / Placa")
-
         ca, cb = st.columns(2)
         with ca:
             volume = st.number_input("Volume (Lts)", min_value=0.0, step=1.0, format="%.1f")
         with cb:
             horimetro = st.number_input("Horímetro / KM", min_value=0.0, step=0.1, format="%.1f")
 
-# --- SALVAR ---
 if st.button("✅ SALVAR NO SISTEMA"):
     if not id_frota.strip() or volume <= 0:
         st.warning("⚠️ Preencha ID Frota e Volume antes de salvar.")
@@ -109,21 +100,17 @@ if st.button("✅ SALVAR NO SISTEMA"):
                 "HORIMETRO":     horimetro,
                 "ATIVIDADE":     atividade
             }])
-
             df_atual = conn.read(worksheet=ABA_REGISTRO)
             df_final = pd.concat([df_atual, novo], ignore_index=True)
             conn.update(worksheet=ABA_REGISTRO, data=df_final)
-
-            st.cache_data.clear()  # força reload dos dados na próxima interação
+            st.cache_data.clear()
             st.success("✅ Registro salvo com sucesso!")
             st.balloons()
-
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")
 
-# --- HISTÓRICO ---
 with st.expander("📊 Ver Últimos Registros"):
-    col1, col2 = st.columns([1, 4])
+    col1, _ = st.columns([1, 4])
     with col1:
         n_registros = st.number_input("Qtd registros", min_value=5, max_value=100, value=10, step=5)
     if st.button("🔄 Atualizar Lista"):
