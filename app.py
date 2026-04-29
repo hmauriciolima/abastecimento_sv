@@ -1,7 +1,9 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
+import gspread
 
 st.set_page_config(page_title="Abastecimento SV", layout="wide", page_icon="⛽")
 
@@ -12,26 +14,14 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-conn = st.connection("gsheets", type=GSheetsConnection)
+# --- CONFIGURAÇÃO ---
+SHEET_ID  = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
+BASE_URL  = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet="
 
-# --- DIAGNÓSTICO TOTAL ---
-st.subheader("🔍 DIAGNÓSTICO")
-st.write("**Secrets:**", st.secrets["connections"]["gsheets"])
-
-try:
-    df_teste = conn.read()
-    st.success(f"✅ Conexão OK! Colunas da 1ª aba: {df_teste.columns.tolist()}")
-except Exception as e:
-    st.error(f"❌ Falha total na conexão: {e}")
-
-for aba in ["ABASTECIMENTO", "FROTA", "DIM_LOCAIS", "DIM_ATIVIDADES"]:
-    try:
-        df = conn.read(worksheet=aba)
-        st.success(f"✅ Aba '{aba}' OK — {len(df)} linhas, colunas: {df.columns.tolist()}")
-    except Exception as e:
-        st.error(f"❌ Aba '{aba}': {e}")
-
-st.divider()
+ABA_FROTA      = "FROTA"
+ABA_LOCAIS     = "DIM_LOCAIS"
+ABA_ATIVIDADES = "DIM_ATIVIDADES"
+ABA_REGISTRO   = "ABASTECIMENTO"
 
 # --- LOGIN ---
 if "auth" not in st.session_state:
@@ -48,28 +38,28 @@ if not st.session_state.auth:
             st.error("Senha incorreta!")
     st.stop()
 
-ABA_FROTA      = "FROTA"
-ABA_LOCAIS     = "DIM_LOCAIS"
-ABA_ATIVIDADES = "DIM_ATIVIDADES"
-ABA_REGISTRO   = "ABASTECIMENTO"
+# --- LEITURA VIA PANDAS (sem streamlit-gsheets) ---
+@st.cache_data(ttl=60)
+def ler_aba(nome):
+    return pd.read_csv(BASE_URL + nome)
 
 @st.cache_data(ttl=60)
 def carregar_listas():
     erros = []
     f_lista, l_lista, a_lista = [], [], []
     try:
-        df_frota = conn.read(worksheet=ABA_FROTA)
-        f_lista = df_frota["FROTA"].dropna().unique().tolist()
+        df = ler_aba(ABA_FROTA)
+        f_lista = df["FROTA"].dropna().unique().tolist()
     except Exception as e:
         erros.append(f"❌ Aba '{ABA_FROTA}': {e}")
     try:
-        df_locais = conn.read(worksheet=ABA_LOCAIS)
-        l_lista = df_locais["LOCAL_DESTINO"].dropna().unique().tolist()
+        df = ler_aba(ABA_LOCAIS)
+        l_lista = df["LOCAL_DESTINO"].dropna().unique().tolist()
     except Exception as e:
         erros.append(f"❌ Aba '{ABA_LOCAIS}': {e}")
     try:
-        df_ativ = conn.read(worksheet=ABA_ATIVIDADES)
-        a_lista = df_ativ["ATIVIDADE"].dropna().unique().tolist()
+        df = ler_aba(ABA_ATIVIDADES)
+        a_lista = df["ATIVIDADE"].dropna().unique().tolist()
     except Exception as e:
         erros.append(f"❌ Aba '{ABA_ATIVIDADES}': {e}")
     return f_lista, l_lista, a_lista, erros
@@ -80,23 +70,36 @@ if erros_carga:
     for e in erros_carga:
         st.error(e)
 
+# --- ESCRITA VIA GSPREAD ---
+def salvar_registro(novo_registro):
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    creds = service_account.Credentials.from_service_account_info(
+        creds_dict,
+        scopes=["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    )
+    gc = gspread.authorize(creds)
+    sh = gc.open_by_key(SHEET_ID)
+    ws = sh.worksheet(ABA_REGISTRO)
+    ws.append_row(list(novo_registro.values()), value_input_option="USER_ENTERED")
+
+# --- INTERFACE ---
 st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
 
 with st.container():
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("📍 Gestão de Fluxo")
-        data_reg = st.date_input("Data do Registro", datetime.now())
-        origem = st.radio("Origem", ["POSTO SEDE", "COMBOIO"], horizontal=True)
-        destino = st.selectbox("Local / Destino", options=locais if locais else ["— sem dados —"])
+        data_reg  = st.date_input("Data do Registro", datetime.now())
+        origem    = st.radio("Origem", ["POSTO SEDE", "COMBOIO"], horizontal=True)
+        destino   = st.selectbox("Local / Destino", options=locais if locais else ["— sem dados —"])
         atividade = st.selectbox("Atividade / Operação", options=ativs if ativs else ["— sem dados —"])
     with c2:
         st.subheader("🚜 Ativo / Equipamento")
-        modelo = st.selectbox("Modelo do Equipamento", options=frotas if frotas else ["— sem dados —"])
+        modelo   = st.selectbox("Modelo do Equipamento", options=frotas if frotas else ["— sem dados —"])
         id_frota = st.text_input("ID Frota / Placa")
-        ca, cb = st.columns(2)
+        ca, cb   = st.columns(2)
         with ca:
-            volume = st.number_input("Volume (Lts)", min_value=0.0, step=1.0, format="%.1f")
+            volume    = st.number_input("Volume (Lts)", min_value=0.0, step=1.0, format="%.1f")
         with cb:
             horimetro = st.number_input("Horímetro / KM", min_value=0.0, step=0.1, format="%.1f")
 
@@ -105,7 +108,7 @@ if st.button("✅ SALVAR NO SISTEMA"):
         st.warning("⚠️ Preencha ID Frota e Volume antes de salvar.")
     else:
         try:
-            novo = pd.DataFrame([{
+            novo = {
                 "DATA":          data_reg.strftime("%d/%m/%Y"),
                 "ORIGEM":        origem,
                 "LOCAL_DESTINO": destino,
@@ -115,10 +118,8 @@ if st.button("✅ SALVAR NO SISTEMA"):
                 "Qtde":          volume,
                 "HORIMETRO":     horimetro,
                 "ATIVIDADE":     atividade
-            }])
-            df_atual = conn.read(worksheet=ABA_REGISTRO)
-            df_final = pd.concat([df_atual, novo], ignore_index=True)
-            conn.update(worksheet=ABA_REGISTRO, data=df_final)
+            }
+            salvar_registro(novo)
             st.cache_data.clear()
             st.success("✅ Registro salvo com sucesso!")
             st.balloons()
@@ -128,10 +129,10 @@ if st.button("✅ SALVAR NO SISTEMA"):
 with st.expander("📊 Ver Últimos Registros"):
     col1, _ = st.columns([1, 4])
     with col1:
-        n_registros = st.number_input("Qtd registros", min_value=5, max_value=100, value=10, step=5)
+        n = st.number_input("Qtd registros", min_value=5, max_value=100, value=10, step=5)
     if st.button("🔄 Atualizar Lista"):
         try:
-            df_hist = conn.read(worksheet=ABA_REGISTRO)
-            st.dataframe(df_hist.tail(n_registros), use_container_width=True)
+            df_hist = ler_aba(ABA_REGISTRO)
+            st.dataframe(df_hist.tail(n), use_container_width=True)
         except Exception as e:
             st.error(f"Erro ao carregar histórico: {e}")
