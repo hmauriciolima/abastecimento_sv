@@ -13,6 +13,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- LOGO + TÍTULO ---
+col_logo, col_titulo = st.columns([1, 5])
+with col_logo:
+    st.image("https://i.postimg.cc/Y9X7ddnb/LOGO-BP.jpg", width=120)
+with col_titulo:
+    st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
+
 SHEET_ID = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
 BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid="
 
@@ -76,8 +83,6 @@ def salvar_registro(novo):
     ws.append_row(list(novo.values()), value_input_option="USER_ENTERED")
 
 # --- INTERFACE ---
-st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
-
 with st.container():
     c1, c2 = st.columns(2)
     with c1:
