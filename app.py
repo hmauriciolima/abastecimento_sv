@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-from googleapiclient.discovery import build
-from google.oauth2 import service_account
 import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
 
 st.set_page_config(page_title="Abastecimento SV", layout="wide", page_icon="⛽")
 
@@ -14,14 +13,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- CONFIGURAÇÃO ---
-SHEET_ID  = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
-BASE_URL  = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet="
+SHEET_ID = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
+BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid="
 
-ABA_FROTA      = "FROTA"
-ABA_LOCAIS     = "DIM_LOCAIS"
-ABA_ATIVIDADES = "DIM_ATIVIDADES"
-ABA_REGISTRO   = "ABASTECIMENTO"
+GID_ABASTECIMENTO = "0"
+GID_FROTA         = "442677789"
+GID_LOCAIS        = "343819585"
+GID_ATIVIDADES    = "198196938"
 
 # --- LOGIN ---
 if "auth" not in st.session_state:
@@ -38,49 +36,43 @@ if not st.session_state.auth:
             st.error("Senha incorreta!")
     st.stop()
 
-# --- LEITURA VIA PANDAS (sem streamlit-gsheets) ---
+# --- LEITURA ---
 @st.cache_data(ttl=60)
-def ler_aba(nome):
-    return pd.read_csv(BASE_URL + nome)
+def ler_aba(gid):
+    return pd.read_csv(BASE_URL + gid)
 
 @st.cache_data(ttl=60)
 def carregar_listas():
     erros = []
     f_lista, l_lista, a_lista = [], [], []
     try:
-        df = ler_aba(ABA_FROTA)
-        f_lista = df["FROTA"].dropna().unique().tolist()
+        f_lista = ler_aba(GID_FROTA)["FROTA"].dropna().unique().tolist()
     except Exception as e:
-        erros.append(f"❌ Aba '{ABA_FROTA}': {e}")
+        erros.append(f"❌ FROTA: {e}")
     try:
-        df = ler_aba(ABA_LOCAIS)
-        l_lista = df["LOCAL_DESTINO"].dropna().unique().tolist()
+        l_lista = ler_aba(GID_LOCAIS)["LOCAL_DESTINO"].dropna().unique().tolist()
     except Exception as e:
-        erros.append(f"❌ Aba '{ABA_LOCAIS}': {e}")
+        erros.append(f"❌ DIM_LOCAIS: {e}")
     try:
-        df = ler_aba(ABA_ATIVIDADES)
-        a_lista = df["ATIVIDADE"].dropna().unique().tolist()
+        a_lista = ler_aba(GID_ATIVIDADES)["ATIVIDADE"].dropna().unique().tolist()
     except Exception as e:
-        erros.append(f"❌ Aba '{ABA_ATIVIDADES}': {e}")
+        erros.append(f"❌ DIM_ATIVIDADES: {e}")
     return f_lista, l_lista, a_lista, erros
 
 frotas, locais, ativs, erros_carga = carregar_listas()
-
 if erros_carga:
     for e in erros_carga:
         st.error(e)
 
-# --- ESCRITA VIA GSPREAD ---
-def salvar_registro(novo_registro):
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    creds = service_account.Credentials.from_service_account_info(
-        creds_dict,
-        scopes=["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+# --- ESCRITA ---
+def salvar_registro(novo):
+    creds = Credentials.from_service_account_info(
+        st.secrets["gcp_service_account"],
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
     gc = gspread.authorize(creds)
-    sh = gc.open_by_key(SHEET_ID)
-    ws = sh.worksheet(ABA_REGISTRO)
-    ws.append_row(list(novo_registro.values()), value_input_option="USER_ENTERED")
+    ws = gc.open_by_key(SHEET_ID).worksheet("ABASTECIMENTO")
+    ws.append_row(list(novo.values()), value_input_option="USER_ENTERED")
 
 # --- INTERFACE ---
 st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
@@ -132,7 +124,7 @@ with st.expander("📊 Ver Últimos Registros"):
         n = st.number_input("Qtd registros", min_value=5, max_value=100, value=10, step=5)
     if st.button("🔄 Atualizar Lista"):
         try:
-            df_hist = ler_aba(ABA_REGISTRO)
+            df_hist = ler_aba(GID_ABASTECIMENTO)
             st.dataframe(df_hist.tail(n), use_container_width=True)
         except Exception as e:
             st.error(f"Erro ao carregar histórico: {e}")
