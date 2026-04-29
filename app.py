@@ -6,7 +6,7 @@ from datetime import datetime
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Abastecimento SV", layout="wide", page_icon="⛽")
 
-# --- ESTILO VISUAL (CONTROLADORIA) ---
+# --- ESTILO VISUAL ---
 st.markdown("""
     <style>
     .stButton>button { width: 100%; background-color: #1a365d; color: white; font-weight: bold; height: 3em; border-radius: 5px; }
@@ -32,30 +32,30 @@ if not st.session_state.auth:
             st.error("Senha incorreta!")
     st.stop()
 
-# --- CARREGAR DADOS DAS ABAS ---
+# --- CARREGAMENTO DE DADOS (ESTRUTURA DAS ABAS) ---
 @st.cache_data(ttl=60)
 def carregar_listas():
     try:
-        # Lê a aba que você renomeou para FROTA
+        # 1. Busca máquinas da aba FROTA
         df_frota = conn.read(worksheet="FROTA")
-        frotas = df_frota["FROTA"].dropna().unique().tolist()
+        f_lista = df_frota["FROTA"].dropna().unique().tolist()
         
-        # Lê a aba DIM_LOCAIS
+        # 2. Busca destinos da aba DIM_LOCAIS
         df_locais = conn.read(worksheet="DIM_LOCAIS")
-        locais = df_locais["LOCAL_DESTINO"].dropna().unique().tolist()
+        l_lista = df_locais["LOCAL_DESTINO"].dropna().unique().tolist()
         
-        # Lê a aba DIM_ATIVIDADES
+        # 3. Busca atividades da aba DIM_ATIVIDADES
         df_ativ = conn.read(worksheet="DIM_ATIVIDADES")
-        ativs = df_ativ["ATIVIDADE"].dropna().unique().tolist()
+        a_lista = df_ativ["ATIVIDADE"].dropna().unique().tolist()
         
-        return frotas, locais, ativs
+        return f_lista, l_lista, a_lista
     except Exception as e:
-        st.error(f"Erro ao ler abas: {e}. Verifique se os nomes das colunas e abas estão corretos.")
+        st.error(f"Erro crítico de leitura: {e}")
         return [], [], []
 
 frotas, locais, ativs = carregar_listas()
 
-# --- INTERFACE ---
+# --- INTERFACE (LAYOUT CORRETO) ---
 st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
 
 with st.container():
@@ -64,12 +64,12 @@ with st.container():
         st.subheader("📍 Gestão de Fluxo")
         data_reg = st.date_input("Data do Registro", datetime.now())
         origem = st.radio("Origem", ["POSTO SEDE", "COMBOIO"], horizontal=True)
-        destino = st.selectbox("Local / Destino", options=locais if locais else ["Erro ao carregar"])
-        atividade = st.selectbox("Atividade / Operação", options=ativs if ativs else ["Erro ao carregar"])
+        destino = st.selectbox("Local / Destino", options=locais if locais else ["Carregando..."])
+        atividade = st.selectbox("Atividade / Operação", options=ativs if ativs else ["Carregando..."])
 
     with c2:
         st.subheader("🚜 Ativo / Equipamento")
-        modelo = st.selectbox("Modelo do Equipamento", options=frotas if frotas else ["Erro ao carregar"])
+        modelo = st.selectbox("Modelo do Equipamento", options=frotas if frotas else ["Carregando..."])
         id_frota = st.text_input("ID Frota / Placa")
         
         ca, cb = st.columns(2)
@@ -81,10 +81,11 @@ with st.container():
 # --- BOTÃO SALVAR ---
 if st.button("✅ SALVAR NO SISTEMA"):
     if not id_frota or volume <= 0:
-        st.warning("⚠️ Preencha o ID da Frota e o Volume.")
+        st.warning("⚠️ Preencha os campos obrigatórios.")
     else:
         try:
-            novo_registro = pd.DataFrame([{
+            # Prepara o registro conforme as colunas da aba ABASTECIMENTO
+            novo = pd.DataFrame([{
                 "DATA": data_reg.strftime("%d/%m/%Y"),
                 "ORIGEM": origem,
                 "LOCAL_DESTINO": destino,
@@ -96,18 +97,17 @@ if st.button("✅ SALVAR NO SISTEMA"):
                 "ATIVIDADE": atividade
             }])
             
-            # Salva na aba ABASTECIMENTO
+            # Atualiza a aba principal
             df_atual = conn.read(worksheet="ABASTECIMENTO")
-            df_final = pd.concat([df_atual, novo_registro], ignore_index=True)
+            df_final = pd.concat([df_atual, novo], ignore_index=True)
             conn.update(worksheet="ABASTECIMENTO", data=df_final)
             
             st.success("✅ Registro realizado com sucesso!")
             st.balloons()
         except Exception as e:
-            st.error(f"Erro ao salvar na planilha: {e}")
+            st.error(f"Erro ao salvar: {e}")
 
-# --- ABA DE HISTÓRICO ---
+# --- HISTÓRICO ---
 with st.expander("📊 Ver Últimos Registros"):
     if st.button("🔄 Atualizar Lista"):
-        df_hist = conn.read(worksheet="ABASTECIMENTO")
-        st.dataframe(df_hist.tail(10))
+        st.dataframe(conn.read(worksheet="ABASTECIMENTO").tail(10))
