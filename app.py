@@ -18,6 +18,7 @@ st.markdown("""
 # --- LOGO + TÍTULO ---
 col_logo, col_titulo = st.columns([1, 5])
 with col_logo:
+    # Usando a URL que você forneceu anteriormente
     st.image("https://i.postimg.cc/Y9X7ddnb/LOGO-BP.jpg", width=120)
 with col_titulo:
     st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
@@ -26,7 +27,7 @@ with col_titulo:
 SHEET_ID = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
 BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid="
 
-# GIDs das abas (Conforme a sua estrutura)
+# GIDs das abas
 GID_ABASTECIMENTO = "0"
 GID_FROTA         = "442677789"
 GID_LOCAIS        = "343819585"
@@ -54,16 +55,12 @@ def ler_aba(gid):
 
 @st.cache_data(ttl=60)
 def carregar_listas():
-    f_lista, l_lista, a_lista = [], [], []
     try:
         df_f = ler_aba(GID_FROTA)
         f_lista = df_f["VEICULOS_EQUIPAMENTOS"].dropna().unique().tolist()
         
-        df_l = ler_aba(GID_LOCAIS)
-        l_lista = df_l["LOCAL_DESTINO"].dropna().unique().tolist()
-        
-        df_a = ler_aba(GID_ATIVIDADES)
-        a_lista = df_a["ATIVIDADE"].dropna().unique().tolist()
+        l_lista = ler_aba(GID_LOCAIS)["LOCAL_DESTINO"].dropna().unique().tolist()
+        a_lista = ler_aba(GID_ATIVIDADES)["ATIVIDADE"].dropna().unique().tolist()
         
         return f_lista, l_lista, a_lista, []
     except Exception as e:
@@ -71,29 +68,42 @@ def carregar_listas():
 
 frotas, locais, ativs, erros_carga = carregar_listas()
 if erros_carga:
-    st.error(f"Erro ao carregar dados da planilha: {erros_carga}")
+    st.error(f"Erro ao carregar listas: {erros_carga}")
 
-# --- FUNÇÃO DE ESCRITA (CORREÇÃO DO ERRO PEM) ---
+# --- FUNÇÃO DE ESCRITA (VERSÃO ANTI-ERRO PEM) ---
 def salvar_registro(novo):
     # 1. Converte segredos para dicionário
     info = st.secrets["gcp_service_account"].to_dict()
     
-    # 2. LIMPEZA CRUCIAL DA CHAVE (Resolve InvalidByte / PEM Error)
-    if "private_key" in info:
-        info["private_key"] = info["private_key"].replace("\\n", "\n")
+    # 2. TRATAMENTO REFORÇADO DA CHAVE PRIVADA
+    # Remove aspas extras, trata \n literais e garante quebras de linha reais
+    raw_key = info["private_key"]
     
-    # 3. Autenticação
+    # Se a chave vier com aspas extras do TOML, removemos
+    if raw_key.startswith('"') and raw_key.endswith('"'):
+        raw_key = raw_key[1:-1]
+    
+    # Substitui \n de texto por quebras de linha reais
+    formatted_key = raw_key.replace("\\n", "\n")
+    
+    # Garante que a chave comece e termine exatamente onde deve
+    if "-----BEGIN PRIVATE KEY-----" in formatted_key:
+        info["private_key"] = formatted_key
+    else:
+        # Caso a chave tenha perdido os headers na colagem
+        st.error("Formato da Private Key inválido nos Secrets.")
+        return
+
+    # 3. Autenticação e Gravação
     creds = Credentials.from_service_account_info(
         info,
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
     gc = gspread.authorize(creds)
-    
-    # 4. Gravação
     ws = gc.open_by_key(SHEET_ID).worksheet("ABASTECIMENTO")
     ws.append_row(list(novo.values()), value_input_option="USER_ENTERED")
 
-# --- INTERFACE DO UTILIZADOR ---
+# --- INTERFACE ---
 with st.container():
     c1, c2 = st.columns(2)
     with c1:
@@ -112,13 +122,12 @@ with st.container():
         with cb:
             horimetro = st.number_input("Horímetro / KM", min_value=0.0, step=0.1, format="%.1f")
 
-# --- BOTÃO SALVAR ---
 if st.button("✅ SALVAR NO SISTEMA"):
     if not id_frota.strip() or volume <= 0:
-        st.warning("⚠️ Preencha o ID da Frota e o Volume antes de salvar.")
+        st.warning("⚠️ Preencha os campos obrigatórios.")
     else:
         try:
-            dados_para_salvar = {
+            dados = {
                 "DATA":          data_reg.strftime("%d/%m/%Y"),
                 "ORIGEM":        origem,
                 "LOCAL_DESTINO": destino,
@@ -129,9 +138,9 @@ if st.button("✅ SALVAR NO SISTEMA"):
                 "HORIMETRO":     horimetro,
                 "ATIVIDADE":     atividade
             }
-            salvar_registro(dados_para_salvar)
-            st.cache_data.clear() # Limpa cache para o histórico atualizar
-            st.success("✅ Registro guardado com sucesso!")
+            salvar_registro(dados)
+            st.cache_data.clear()
+            st.success("✅ Registro salvo com sucesso!")
             st.balloons()
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")
@@ -143,4 +152,4 @@ with st.expander("📊 Ver Últimos Registros"):
             df_hist = ler_aba(GID_ABASTECIMENTO)
             st.dataframe(df_hist.tail(10), use_container_width=True)
         except Exception as e:
-            st.error(f"Não foi possível carregar o histórico: {e}")
+            st.error(f"Erro ao carregar histórico: {e}")
