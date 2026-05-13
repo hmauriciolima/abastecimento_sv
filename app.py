@@ -4,34 +4,16 @@ import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
+# --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="Abastecimento SV", layout="wide", page_icon="⛽")
 
-# --- ESTILO VISUAL ---
+# Estilo para botões e campos
 st.markdown("""
     <style>
     .stButton>button { width: 100%; background-color: #1a365d; color: white; font-weight: bold; height: 3em; border-radius: 5px; }
     div[data-testid="stExpander"] { background-color: white; border-radius: 10px; border: 1px solid #e6e9ef; }
     </style>
 """, unsafe_allow_html=True)
-
-# --- LOGO + TÍTULO ---
-col_logo, col_titulo = st.columns([1, 5])
-with col_logo:
-    # Usando a URL que você forneceu anteriormente
-    st.image("https://i.postimg.cc/Y9X7ddnb/LOGO-BP.jpg", width=120)
-with col_titulo:
-    st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
-
-# --- CONFIGURAÇÕES DA PLANILHA ---
-SHEET_ID = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
-BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid="
-
-# GIDs das abas
-GID_ABASTECIMENTO = "0"
-GID_FROTA         = "442677789"
-GID_LOCAIS        = "343819585"
-GID_ATIVIDADES    = "198196938"
 
 # --- LOGIN ---
 if "auth" not in st.session_state:
@@ -44,59 +26,41 @@ if not st.session_state.auth:
         if senha == st.secrets["passwords"]["access_password"]:
             st.session_state.auth = True
             st.rerun()
-        else:
-            st.error("Senha incorreta!")
     st.stop()
 
-# --- FUNÇÕES DE LEITURA ---
-@st.cache_data(ttl=60)
-def ler_aba(gid):
-    return pd.read_csv(BASE_URL + gid)
+# --- CONFIGURAÇÕES DA PLANILHA ---
+SHEET_ID = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
+BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid="
 
+GID_ABASTECIMENTO = "0"
+GID_FROTA         = "442677789"
+GID_LOCAIS        = "343819585"
+GID_ATIVIDADES    = "198196938"
+
+# --- LEITURA DE DADOS ---
 @st.cache_data(ttl=60)
-def carregar_listas():
+def carregar_dados():
     try:
-        df_f = ler_aba(GID_FROTA)
-        f_lista = df_f["VEICULOS_EQUIPAMENTOS"].dropna().unique().tolist()
-        
-        l_lista = ler_aba(GID_LOCAIS)["LOCAL_DESTINO"].dropna().unique().tolist()
-        a_lista = ler_aba(GID_ATIVIDADES)["ATIVIDADE"].dropna().unique().tolist()
-        
-        return f_lista, l_lista, a_lista, []
-    except Exception as e:
-        return [], [], [], [str(e)]
+        f = pd.read_csv(BASE_URL + GID_FROTA)["VEICULOS_EQUIPAMENTOS"].dropna().unique().tolist()
+        l = pd.read_csv(BASE_URL + GID_LOCAIS)["LOCAL_DESTINO"].dropna().unique().tolist()
+        a = pd.read_csv(BASE_URL + GID_ATIVIDADES)["ATIVIDADE"].dropna().unique().tolist()
+        return f, l, a
+    except:
+        return [], [], []
 
-frotas, locais, ativs, erros_carga = carregar_listas()
-if erros_carga:
-    st.error(f"Erro ao carregar listas: {erros_carga}")
+frotas, locais, ativs = carregar_dados()
 
-# --- FUNÇÃO DE ESCRITA (VERSÃO ANTI-ERRO PEM) ---
+# --- FUNÇÃO DE SALVAMENTO BLINDADA ---
 def salvar_registro(novo):
-    # 1. Converte segredos para dicionário
+    # Converte secrets para dicionário manipulável
     info = st.secrets["gcp_service_account"].to_dict()
     
-    # 2. TRATAMENTO REFORÇADO DA CHAVE PRIVADA
-    # Remove aspas extras, trata \n literais e garante quebras de linha reais
-    raw_key = info["private_key"]
+    # LIMPEZA DA CHAVE: Resolve o erro de PEM e InvalidByte
+    # Trata tanto se você colou com \n ou se colou com quebras de linha reais
+    info["private_key"] = info["private_key"].replace("\\n", "\n").strip()
     
-    # Se a chave vier com aspas extras do TOML, removemos
-    if raw_key.startswith('"') and raw_key.endswith('"'):
-        raw_key = raw_key[1:-1]
-    
-    # Substitui \n de texto por quebras de linha reais
-    formatted_key = raw_key.replace("\\n", "\n")
-    
-    # Garante que a chave comece e termine exatamente onde deve
-    if "-----BEGIN PRIVATE KEY-----" in formatted_key:
-        info["private_key"] = formatted_key
-    else:
-        # Caso a chave tenha perdido os headers na colagem
-        st.error("Formato da Private Key inválido nos Secrets.")
-        return
-
-    # 3. Autenticação e Gravação
     creds = Credentials.from_service_account_info(
-        info,
+        info, 
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
     gc = gspread.authorize(creds)
@@ -104,52 +68,44 @@ def salvar_registro(novo):
     ws.append_row(list(novo.values()), value_input_option="USER_ENTERED")
 
 # --- INTERFACE ---
-with st.container():
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("📍 Gestão de Fluxo")
-        data_reg  = st.date_input("Data do Registro", datetime.now())
-        origem    = st.radio("Origem", ["POSTO SEDE", "COMBOIO"], horizontal=True)
-        destino   = st.selectbox("Local / Destino", options=locais if locais else ["—"])
-        atividade = st.selectbox("Atividade / Operação", options=ativs if ativs else ["—"])
-    with c2:
-        st.subheader("🚜 Ativo / Equipamento")
-        modelo   = st.selectbox("Modelo do Equipamento", options=frotas if frotas else ["—"])
-        id_frota = st.text_input("ID Frota / Placa")
-        ca, cb   = st.columns(2)
-        with ca:
-            volume    = st.number_input("Volume (Lts)", min_value=0.0, step=1.0, format="%.1f")
-        with cb:
-            horimetro = st.number_input("Horímetro / KM", min_value=0.0, step=0.1, format="%.1f")
+st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
+
+c1, c2 = st.columns(2)
+with c1:
+    st.subheader("📍 Fluxo")
+    data_reg = st.date_input("Data", datetime.now())
+    origem = st.radio("Origem", ["POSTO SEDE", "COMBOIO"], horizontal=True)
+    destino = st.selectbox("Destino", options=locais if locais else ["—"])
+    atividade = st.selectbox("Atividade", options=ativs if ativs else ["—"])
+
+with c2:
+    st.subheader("🚜 Equipamento")
+    modelo = st.selectbox("Equipamento", options=frotas if frotas else ["—"])
+    id_frota = st.text_input("ID / Placa").upper()
+    ca, cb = st.columns(2)
+    with ca:
+        volume = st.number_input("Volume (Lts)", min_value=0.0, step=1.0)
+    with cb:
+        horimetro = st.number_input("Horímetro", min_value=0.0, step=0.1)
 
 if st.button("✅ SALVAR NO SISTEMA"):
-    if not id_frota.strip() or volume <= 0:
-        st.warning("⚠️ Preencha os campos obrigatórios.")
+    if not id_frota or volume <= 0:
+        st.warning("⚠️ Preencha o ID e o Volume.")
     else:
         try:
-            dados = {
-                "DATA":          data_reg.strftime("%d/%m/%Y"),
-                "ORIGEM":        origem,
-                "LOCAL_DESTINO": destino,
-                "FROTA":         modelo,
-                "ID_FROTA":      id_frota.strip().upper(),
-                "COMBUSTÍVEL":   "DIESEL",
-                "Qtde":          volume,
-                "HORIMETRO":     horimetro,
-                "ATIVIDADE":     atividade
+            dados_salvar = {
+                "DATA": data_reg.strftime("%d/%m/%Y"),
+                "ORIGEM": origem,
+                "DESTINO": destino,
+                "FROTA": modelo,
+                "ID": id_frota,
+                "COMBUST": "DIESEL",
+                "QTD": volume,
+                "HORIM": horimetro,
+                "ATIV": atividade
             }
-            salvar_registro(dados)
-            st.cache_data.clear()
-            st.success("✅ Registro salvo com sucesso!")
+            salvar_registro(dados_salvar)
+            st.success("✅ Salvo com sucesso!")
             st.balloons()
         except Exception as e:
             st.error(f"Erro ao salvar: {e}")
-
-# --- HISTÓRICO ---
-with st.expander("📊 Ver Últimos Registros"):
-    if st.button("🔄 Atualizar Lista"):
-        try:
-            df_hist = ler_aba(GID_ABASTECIMENTO)
-            st.dataframe(df_hist.tail(10), use_container_width=True)
-        except Exception as e:
-            st.error(f"Erro ao carregar histórico: {e}")
