@@ -6,6 +6,7 @@ from datetime import datetime
 
 st.set_page_config(page_title="Abastecimento SV", layout="wide", page_icon="⛽")
 
+# Estilos CSS
 st.markdown("""
     <style>
     .stButton>button { width: 100%; background-color: #1a365d; color: white; font-weight: bold; height: 3em; border-radius: 5px; }
@@ -20,6 +21,7 @@ with col_logo:
 with col_titulo:
     st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
 
+# ID CORRETO DA PLANILHA (Confirmado: termina em ZOoo)
 SHEET_ID = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
 BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid="
 
@@ -36,16 +38,20 @@ if not st.session_state.auth:
     st.title("🔐 Controladoria Santa Vergínia")
     senha = st.text_input("Senha de Acesso:", type="password")
     if st.button("Entrar"):
-        if senha == st.secrets["passwords"]["access_password"]:
-            st.session_state.auth = True
-            st.rerun()
-        else:
-            st.error("Senha incorreta!")
+        try:
+            if senha == st.secrets["passwords"]["access_password"]:
+                st.session_state.auth = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta!")
+        except Exception:
+            st.error("Erro ao acessar segredos. Verifique o arquivo secrets.toml")
     st.stop()
 
 # --- LEITURA ---
 @st.cache_data(ttl=60)
 def ler_aba(gid):
+    # Tenta ler via URL pública (CSV)
     return pd.read_csv(BASE_URL + gid)
 
 @st.cache_data(ttl=60)
@@ -74,12 +80,24 @@ if erros_carga:
 
 # --- ESCRITA ---
 def salvar_registro(novo):
+    # IMPORTANTE: O nome nos segredos deve ser exatamente 'gcp_service_account'
     creds = Credentials.from_service_account_info(
         st.secrets["gcp_service_account"],
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
     gc = gspread.authorize(creds)
-    ws = gc.open_by_key(SHEET_ID).worksheet("ABASTECIMENTO")
+    
+    # Abre a planilha pelo ID para evitar erros de nome de arquivo
+    sh = gc.open_by_key(SHEET_ID)
+    
+    # Busca a aba 'ABASTECIMENTO'. Certifique-se que o nome na planilha é idêntico.
+    try:
+        ws = sh.worksheet("ABASTECIMENTO")
+    except gspread.exceptions.WorksheetNotFound:
+        # Se não achar com maiúsculas, tenta 'Página1' ou lista as abas para ajudar no erro
+        abas_disponiveis = [w.title for w in sh.worksheets()]
+        raise Exception(f"Aba 'ABASTECIMENTO' não encontrada. Abas disponíveis: {abas_disponiveis}")
+
     ws.append_row(list(novo.values()), value_input_option="USER_ENTERED")
 
 # --- INTERFACE ---
@@ -119,10 +137,11 @@ if st.button("✅ SALVAR NO SISTEMA"):
             }
             salvar_registro(novo)
             st.cache_data.clear()
-            st.success("✅ Registro salvo com sucesso!")
+            st.success("✅ Registro salvo com sucesso na Sheets!")
             st.balloons()
         except Exception as e:
-            st.error(f"Erro ao salvar: {e}")
+            st.error(f"Erro ao salvar no Google Sheets: {e}")
+            st.info("DICA: Verifique se você compartilhou a planilha com o e-mail da Conta de Serviço como 'Editor'.")
 
 with st.expander("📊 Ver Últimos Registros"):
     col1, _ = st.columns([1, 4])
