@@ -21,7 +21,7 @@ with col_logo:
 with col_titulo:
     st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
 
-# ID CORRETO DA PLANILHA (Confirmado: termina em ZOoo)
+# ID CORRETO DA PLANILHA
 SHEET_ID = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
 BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid="
 
@@ -51,7 +51,6 @@ if not st.session_state.auth:
 # --- LEITURA ---
 @st.cache_data(ttl=60)
 def ler_aba(gid):
-    # Tenta ler via URL pública (CSV)
     return pd.read_csv(BASE_URL + gid)
 
 @st.cache_data(ttl=60)
@@ -80,21 +79,20 @@ if erros_carga:
 
 # --- ESCRITA ---
 def salvar_registro(novo):
-    # IMPORTANTE: O nome nos segredos deve ser exatamente 'gcp_service_account'
+    # CORREÇÃO DO ERRO PEM: Tratamento da private_key
+    info = dict(st.secrets["gcp_service_account"])
+    info["private_key"] = info["private_key"].replace("\\n", "\n")
+    
     creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
+        info,
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
     gc = gspread.authorize(creds)
-    
-    # Abre a planilha pelo ID para evitar erros de nome de arquivo
     sh = gc.open_by_key(SHEET_ID)
     
-    # Busca a aba 'ABASTECIMENTO'. Certifique-se que o nome na planilha é idêntico.
     try:
         ws = sh.worksheet("ABASTECIMENTO")
     except gspread.exceptions.WorksheetNotFound:
-        # Se não achar com maiúsculas, tenta 'Página1' ou lista as abas para ajudar no erro
         abas_disponiveis = [w.title for w in sh.worksheets()]
         raise Exception(f"Aba 'ABASTECIMENTO' não encontrada. Abas disponíveis: {abas_disponiveis}")
 
@@ -141,7 +139,7 @@ if st.button("✅ SALVAR NO SISTEMA"):
             st.balloons()
         except Exception as e:
             st.error(f"Erro ao salvar no Google Sheets: {e}")
-            st.info("DICA: Verifique se você compartilhou a planilha com o e-mail da Conta de Serviço como 'Editor'.")
+            st.info("DICA: Verifique se a private_key no secrets.toml está entre aspas e se você compartilhou a planilha com o e-mail da conta de serviço.")
 
 with st.expander("📊 Ver Últimos Registros"):
     col1, _ = st.columns([1, 4])
