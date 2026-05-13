@@ -6,7 +6,6 @@ from datetime import datetime
 
 st.set_page_config(page_title="Abastecimento SV", layout="wide", page_icon="⛽")
 
-# Estilos CSS
 st.markdown("""
     <style>
     .stButton>button { width: 100%; background-color: #1a365d; color: white; font-weight: bold; height: 3em; border-radius: 5px; }
@@ -21,7 +20,6 @@ with col_logo:
 with col_titulo:
     st.title("⛽ REGISTRO DE ABASTECIMENTO - SV")
 
-# ID CORRETO DA PLANILHA
 SHEET_ID = "1wbpQ91qD4E8Jwj7w0cXPYqDl6ldJnApU-pJLb_0ZOoo"
 BASE_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&gid="
 
@@ -38,14 +36,11 @@ if not st.session_state.auth:
     st.title("🔐 Controladoria Santa Vergínia")
     senha = st.text_input("Senha de Acesso:", type="password")
     if st.button("Entrar"):
-        try:
-            if senha == st.secrets["passwords"]["access_password"]:
-                st.session_state.auth = True
-                st.rerun()
-            else:
-                st.error("Senha incorreta!")
-        except Exception:
-            st.error("Erro ao acessar segredos. Verifique o arquivo secrets.toml")
+        if senha == st.secrets["passwords"]["access_password"]:
+            st.session_state.auth = True
+            st.rerun()
+        else:
+            st.error("Senha incorreta!")
     st.stop()
 
 # --- LEITURA ---
@@ -77,10 +72,12 @@ if erros_carga:
     for e in erros_carga:
         st.error(e)
 
-# --- ESCRITA ---
+# --- ESCRITA (CORRIGIDO PARA PEM ERROR) ---
 def salvar_registro(novo):
-    # CORREÇÃO DO ERRO PEM: Tratamento da private_key
-    info = dict(st.secrets["gcp_service_account"])
+    # Converte os segredos para dicionário
+    info = st.secrets["gcp_service_account"].to_dict()
+    
+    # CORREÇÃO DO PEM: Transforma \n em quebras de linha reais
     info["private_key"] = info["private_key"].replace("\\n", "\n")
     
     creds = Credentials.from_service_account_info(
@@ -88,14 +85,7 @@ def salvar_registro(novo):
         scopes=["https://www.googleapis.com/auth/spreadsheets"]
     )
     gc = gspread.authorize(creds)
-    sh = gc.open_by_key(SHEET_ID)
-    
-    try:
-        ws = sh.worksheet("ABASTECIMENTO")
-    except gspread.exceptions.WorksheetNotFound:
-        abas_disponiveis = [w.title for w in sh.worksheets()]
-        raise Exception(f"Aba 'ABASTECIMENTO' não encontrada. Abas disponíveis: {abas_disponiveis}")
-
+    ws = gc.open_by_key(SHEET_ID).worksheet("ABASTECIMENTO")
     ws.append_row(list(novo.values()), value_input_option="USER_ENTERED")
 
 # --- INTERFACE ---
@@ -135,11 +125,10 @@ if st.button("✅ SALVAR NO SISTEMA"):
             }
             salvar_registro(novo)
             st.cache_data.clear()
-            st.success("✅ Registro salvo com sucesso na Sheets!")
+            st.success("✅ Registro salvo com sucesso!")
             st.balloons()
         except Exception as e:
-            st.error(f"Erro ao salvar no Google Sheets: {e}")
-            st.info("DICA: Verifique se a private_key no secrets.toml está entre aspas e se você compartilhou a planilha com o e-mail da conta de serviço.")
+            st.error(f"Erro ao salvar: {e}")
 
 with st.expander("📊 Ver Últimos Registros"):
     col1, _ = st.columns([1, 4])
